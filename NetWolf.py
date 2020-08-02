@@ -8,7 +8,7 @@ from timeit import default_timer as timer
 
 UDP_MESSAGE_LENGTH_SIZE = 1024
 ENCODING = 'utf-8'
-DISCOVERY_TIMEOUT = 2
+DISCOVERY_TIMEOUT = 5
 MAXIMUM_NUMBER_OF_TCP_CONNECTIONS = 5
 
 
@@ -41,10 +41,13 @@ class Node:
         self.address = address
         self.udp_port = udp_port
         self.cluster_list = read_initial_clusters(name)
+
+    def start_running(self):
         self.udp_server_thread = threading.Thread(target=self.udp_server_connection)
         self.udp_server_thread.start()
         self.udp_client_discovery_thread = threading.Thread(target=self.udp_client_discovery)
         self.udp_client_discovery_thread.start()
+
 
     def udp_client_discovery(self):
         client_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
@@ -84,7 +87,6 @@ class Node:
             tcp_addr = dataList[shortestIndex].split("\n")[1].split(":")[0]
             # Adding its own name and address at the end of the message
             message += "\n{} {}".format(self.name, tcp_port)
-            print(message)
             client_socket.sendto(bytes(message, ENCODING), (self.cluster_list[shortestIndex][1], self.cluster_list[shortestIndex][2]))
             recv_tcp_thread = threading.Thread(target=self.recv_tcp, args=(tcp_addr, tcp_port, file_name))
             recv_tcp_thread.start()
@@ -181,8 +183,6 @@ class Node:
                 conn.sendall(data)
 
 
-
-
     def merge_cluster_list(self, rec_list):
         for elem in rec_list:
             if elem[0] != self.name:
@@ -195,19 +195,47 @@ class Node:
                     self.cluster_list.append(elem)
 #        print("{}: {}".format(self.name, self.cluster_list))
 
+    def show_clusters_list(self):
+        print("This is the clusters_list of {}:".format(self.name))
+        print(self.clusters_to_string())
+
+
+def get_user_commands(nodes_list):
+    print("Which node do you want to execute commands on? (select number)")
+    for i in range(len(nodes_list)):
+        print("{}) {}\t".format(i, nodes_list[i].name))
+    selected = int(input("> "))
+    print('Commands:\n1) "switch": change selected node\n2) "list": show cluster_list of {}'.format(
+    nodes_list[int(selected)].name))
+    print('3) "get <filename>" download the file from the fastest peer. e.g. "get dark-souls.jpg"')
+    while True:
+        command = input("> ")
+        if command == "switch":
+            print("Which node do you want to execute commands on? (select number)")
+            for i in range(len(nodes_list)):
+                print("{}) {}\t".format(i, nodes_list[i].name))
+            selected = int(input("> "))
+        elif command == "list":
+            nodes_list[selected].show_clusters_list()
+        elif command.split()[0] == "get":
+            nodes_list[selected].udp_client_get(command.split()[1])
+
 
 def main():
-#    t1 = threading.Thread(target=Node, args=("N1", "127.0.0.1", 4001))
-#    t1.start()
-    t2 = threading.Thread(target=Node, args=("N2", "127.0.0.1", 4002))
-    t2.start()
-    t3 = threading.Thread(target=Node, args=("N3", "127.0.0.1", 4003))
-    t3.start()
-    t4 = threading.Thread(target=Node, args=("N4", "127.0.0.1", 4004))
-    t4.start()
-    time.sleep(1)
     n1 = Node("N1", "127.0.0.1", 4001)
-    n1.udp_client_get("hello.txt")
+    n2 = Node("N2", "127.0.0.1", 4002)
+    n3 = Node("N3", "127.0.0.1", 4003)
+    n4 = Node("N4", "127.0.0.1", 4004)
+    t1 = threading.Thread(target=n1.start_running)
+    t1.start()
+    t2 = threading.Thread(target=n2.start_running)
+    t2.start()
+    t3 = threading.Thread(target=n3.start_running)
+    t3.start()
+    t4 = threading.Thread(target=n4.start_running)
+    t4.start()
+    nodes = [n1, n2, n3, n4]
+    get_user_commands(nodes)
 
 
 if __name__ == '__main__':
