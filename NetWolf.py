@@ -2,11 +2,13 @@ import threading
 import socket
 import time
 import os.path
+from timeit import default_timer as timer
+
 
 
 UDP_MESSAGE_LENGTH_SIZE = 1024
 ENCODING = 'utf-8'
-DISCOVERY_TIMEOUT = 5
+DISCOVERY_TIMEOUT = 2
 
 
 def read_initial_clusters(file_name):
@@ -56,14 +58,44 @@ class Node:
             time.sleep(DISCOVERY_TIMEOUT)
 
     def udp_client_get(self, file_name):
+        threads = [None] * len(self.cluster_list)
+        results = [None] * len(self.cluster_list)
+        dataList = [None] * len(self.cluster_list)
+        for i in range(len(threads)):
+            threads[i] = threading.Thread(target=self.get_response, args=(file_name, self.cluster_list[i], results, dataList, i))
+            threads[i].start()
+        # do some other stuff
+        for i in range(len(threads)):
+            threads[i].join(timeout=1)
+        shortestTime = 100
+        shortestIndex = 0
+        for i in range(len(results)):
+            if results[i] != 0 and results[i] < shortestTime:
+                shortestTime = results[i]
+                shortestIndex = i
+        if shortestTime != 100:
+            # get data through tcp connection from cluster_list[shortestIndex]
+
+
+
+
+    def get_response(self, file_name, cluster, results, dataList, i):
+        results[i] = 0
         client_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        client_socket.bind((self.address, 0))
         # GET at the first line --> GET message
         message = "GET\n{}".format(file_name)
         # Adding its own name and address at the end of the message
-        message += "\n{} {}:{}".format(self.name, self.address, self.udp_port)
-        # Sending the message to the clusters
-        for elem in self.cluster_list:
-            client_socket.sendto(bytes(message, ENCODING), (elem[1], elem[2]))
+        message += "\n{} {}:{}".format(self.name, self.address, client_socket.getsockname()[1])
+        start = timer()
+        client_socket.sendto(bytes(message, ENCODING), (cluster[1], cluster[2]))
+        data = client_socket.recv(UDP_MESSAGE_LENGTH_SIZE)
+        end = timer()
+        data = data.decode(ENCODING)
+        if data.split("\n")[0] == "GER":
+            results[i] = end - start
+            dataList[i] = data
+
 
     def clusters_to_string(self):
         s = ""
@@ -87,17 +119,19 @@ class Node:
             elif data[0:3] == "GET":
                 #  This is a GET request
                 file_name = data_list[1]
-                req_ip = data_list[2].split()[0]
-                req_port = data_list[2].split()[1].split(":")[1]
+                print("data",data_list)
+                req_ip = data_list[2].split()[1].split(":")[0]
+                req_port = int(data_list[2].split()[1].split(":")[1])
                 rel_file_name = "{}\\{}".format(self.name, file_name)
                 available = os.path.isfile(rel_file_name)
 #               print("In {}: GET Request for file <{}> from {}:{} - Available: {}".format(self.name, file_name, req_ip, req_port, available))
                 if available:
                     # File is available for transmission
                     tcp_port = find_free_port()
-                    tcp_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-                    tcp_sock.bind((self.address, tcp_port))
-                    print("In {}: GET Request for file <{}> from {}:{} - Available: {}, port {}".format(self.name, file_name, req_ip, req_port, available, tcp_port))
+#                    print("In {}: GET Request for file <{}> from {}:{} - Available: {}, ip {} and port {}".format(self.name, file_name, req_ip, req_port, available, tcp_sock.getsockname()[0], tcp_port))
+                    # GER is the first word of message -> File is available at this node
+                    message = "GER\n{}:{}".format(self.address, tcp_port)
+                    sock.sendto(bytes(message, ENCODING), (req_ip, req_port))
 
     def merge_cluster_list(self, rec_list):
         for elem in rec_list:
@@ -121,6 +155,7 @@ def main():
     t3.start()
     t4 = threading.Thread(target=Node, args=("N4", "127.0.0.1", 4004))
     t4.start()
+    time.sleep(1)
     n1 = Node("N1", "127.0.0.1", 4001)
     n1.udp_client_get("hello.txt")
 
