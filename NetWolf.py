@@ -1,6 +1,8 @@
 import threading
 import socket
 import time
+import os.path
+
 
 UDP_MESSAGE_LENGTH_SIZE = 1024
 ENCODING = 'utf-8'
@@ -24,18 +26,24 @@ def convert_to_list(lines):
     return clist
 
 
+def find_free_port():
+    s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    s.bind(('', 0))
+    return s.getsockname()[1]
+
+
 class Node:
     def __init__(self, name, address, udp_port):
         self.name = name
         self.address = address
         self.udp_port = udp_port
         self.cluster_list = read_initial_clusters(name)
-        self.server_thread = threading.Thread(target=self.udp_server_connection)
-        self.server_thread.start()
-        self.client_thread = threading.Thread(target=self.udp_client_connection)
-        self.client_thread.start()
+        self.udp_server_thread = threading.Thread(target=self.udp_server_connection)
+        self.udp_server_thread.start()
+        self.udp_client_discovery_thread = threading.Thread(target=self.udp_client_discovery)
+        self.udp_client_discovery_thread.start()
 
-    def udp_client_connection(self):
+    def udp_client_discovery(self):
         client_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         while True:
             # DIS at the first line --> Discovery message
@@ -46,6 +54,16 @@ class Node:
             for elem in self.cluster_list:
                 client_socket.sendto(bytes(message, ENCODING), (elem[1], elem[2]))
             time.sleep(DISCOVERY_TIMEOUT)
+
+    def udp_client_get(self, file_name):
+        client_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        # GET at the first line --> GET message
+        message = "GET\n{}".format(file_name)
+        # Adding its own name and address at the end of the message
+        message += "\n{} {}:{}".format(self.name, self.address, self.udp_port)
+        # Sending the message to the clusters
+        for elem in self.cluster_list:
+            client_socket.sendto(bytes(message, ENCODING), (elem[1], elem[2]))
 
     def clusters_to_string(self):
         s = ""
@@ -63,8 +81,23 @@ class Node:
 #            print("{}: received message from {}:".format(self.name, addr))
 #            print("****d1: {}******".format(str(data[4:])))
             if data[0:3] == "DIS":
+                #  This is a DISCOVERY Message
                 discovered_list = convert_to_list(data[4:].split("\n"))
                 self.merge_cluster_list(discovered_list)
+            elif data[0:3] == "GET":
+                #  This is a GET request
+                file_name = data_list[1]
+                req_ip = data_list[2].split()[0]
+                req_port = data_list[2].split()[1].split(":")[1]
+                rel_file_name = "{}\\{}".format(self.name, file_name)
+                available = os.path.isfile(rel_file_name)
+#               print("In {}: GET Request for file <{}> from {}:{} - Available: {}".format(self.name, file_name, req_ip, req_port, available))
+                if available:
+                    # File is available for transmission
+                    tcp_port = find_free_port()
+                    tcp_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                    tcp_sock.bind((self.address, tcp_port))
+                    print("In {}: GET Request for file <{}> from {}:{} - Available: {}, port {}".format(self.name, file_name, req_ip, req_port, available, tcp_port))
 
     def merge_cluster_list(self, rec_list):
         for elem in rec_list:
@@ -79,17 +112,17 @@ class Node:
 #        print("{}: {}".format(self.name, self.cluster_list))
 
 
-
-
 def main():
-    t1 = threading.Thread(target=Node, args=("N1", "127.0.0.1", 4001))
-    t1.start()
+#    t1 = threading.Thread(target=Node, args=("N1", "127.0.0.1", 4001))
+#    t1.start()
     t2 = threading.Thread(target=Node, args=("N2", "127.0.0.1", 4002))
     t2.start()
     t3 = threading.Thread(target=Node, args=("N3", "127.0.0.1", 4003))
     t3.start()
     t4 = threading.Thread(target=Node, args=("N4", "127.0.0.1", 4004))
     t4.start()
+    n1 = Node("N1", "127.0.0.1", 4001)
+    n1.udp_client_get("hello.txt")
 
 
 if __name__ == '__main__':
