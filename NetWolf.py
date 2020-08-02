@@ -9,6 +9,7 @@ from timeit import default_timer as timer
 UDP_MESSAGE_LENGTH_SIZE = 1024
 ENCODING = 'utf-8'
 DISCOVERY_TIMEOUT = 2
+MAXIMUM_NUMBER_OF_TCP_CONNECTIONS = 5
 
 
 def read_initial_clusters(file_name):
@@ -75,6 +76,19 @@ class Node:
                 shortestIndex = i
         if shortestTime != 100:
             # get data through tcp connection from cluster_list[shortestIndex]
+            client_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+            client_socket.bind((self.address, 0))
+            # GEG at the first line --> Telling cluster_list[shortestIndex] to establish a tcp connection and send the file
+            message = "GEG\n{}".format(file_name)
+            tcp_port = int(dataList[shortestIndex].split("\n")[1].split(":")[1])
+            tcp_addr = dataList[shortestIndex].split("\n")[1].split(":")[0]
+            # Adding its own name and address at the end of the message
+            message += "\n{} {}".format(self.name, tcp_port)
+            print(message)
+            client_socket.sendto(bytes(message, ENCODING), (self.cluster_list[shortestIndex][1], self.cluster_list[shortestIndex][2]))
+            recv_tcp_thread = threading.Thread(target=self.recv_tcp, args=(tcp_addr, tcp_port, file_name))
+            recv_tcp_thread.start()
+            print("Getting {} from node {}".format(file_name, self.cluster_list[shortestIndex][0]))
 
 
 
@@ -95,6 +109,23 @@ class Node:
         if data.split("\n")[0] == "GER":
             results[i] = end - start
             dataList[i] = data
+
+    def recv_tcp(self, server_address, server_port, file_name):
+        socket1 = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        socket1.connect((server_address, server_port))
+        downloaded_file = "{}\\{}".format(self.name, file_name)
+        with open(downloaded_file, 'wb') as file_to_write:
+            while True:
+                data = socket1.recv(1024)
+                # print data
+                if not data:
+                    break
+                # print data
+                file_to_write.write(data)
+        file_to_write.close()
+        print("File received successfuly. Saved to {}".format(downloaded_file))
+        socket1.close()
+
 
 
     def clusters_to_string(self):
@@ -119,7 +150,7 @@ class Node:
             elif data[0:3] == "GET":
                 #  This is a GET request
                 file_name = data_list[1]
-                print("data",data_list)
+#                print("data",data_list)
                 req_ip = data_list[2].split()[1].split(":")[0]
                 req_port = int(data_list[2].split()[1].split(":")[1])
                 rel_file_name = "{}\\{}".format(self.name, file_name)
@@ -132,6 +163,25 @@ class Node:
                     # GER is the first word of message -> File is available at this node
                     message = "GER\n{}:{}".format(self.address, tcp_port)
                     sock.sendto(bytes(message, ENCODING), (req_ip, req_port))
+            elif data[0:3] == "GEG":
+                file_name = data_list[1]
+                tcp_port = int(data_list[2].split()[1])
+                rel_file_name = "{}\\{}".format(self.name, file_name)
+#                print(rel_file_name, req_port)
+                tcp_send_thread = threading.Thread(target=self.send_tcp, args=(tcp_port, rel_file_name))
+                tcp_send_thread.start()
+
+    def send_tcp(self, tcp_port, file_name):
+        server_tcp = socket.socket()  # Create a socket object
+        server_tcp.bind((self.address, tcp_port))  # Bind to the port
+        server_tcp.listen()
+        conn, addr = server_tcp.accept()
+        with open(file_name, 'rb') as file_to_send:
+            for data in file_to_send:
+                conn.sendall(data)
+
+
+
 
     def merge_cluster_list(self, rec_list):
         for elem in rec_list:
