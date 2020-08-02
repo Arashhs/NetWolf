@@ -10,6 +10,7 @@ UDP_MESSAGE_LENGTH_SIZE = 1024
 ENCODING = 'utf-8'
 DISCOVERY_TIMEOUT = 5
 MAXIMUM_NUMBER_OF_TCP_CONNECTIONS = 5
+SELFISH_BEHAVIOR_DELAY = 2
 
 
 def read_initial_clusters(file_name):
@@ -41,6 +42,7 @@ class Node:
         self.address = address
         self.udp_port = udp_port
         self.cluster_list = read_initial_clusters(name)
+        self.prior_com = []
 
     def start_running(self):
         self.udp_server_thread = threading.Thread(target=self.udp_server_connection)
@@ -91,6 +93,8 @@ class Node:
             recv_tcp_thread = threading.Thread(target=self.recv_tcp, args=(tcp_addr, tcp_port, file_name))
             recv_tcp_thread.start()
             print("Getting {} from node {}".format(file_name, self.cluster_list[shortestIndex][0]))
+            if self.cluster_list[shortestIndex][0] not in self.prior_com:
+                self.prior_com.append(self.cluster_list[shortestIndex][0])
         else:
             print('No peer has the file "{}"'.format(file_name))
 
@@ -170,16 +174,24 @@ class Node:
             elif data[0:3] == "GEG":
                 file_name = data_list[1]
                 tcp_port = int(data_list[2].split()[1])
+                requested_by = data_list[2].split()[0]
+                print(requested_by)
+                selfish_behaviour = False
+                if requested_by not in self.prior_com:
+                    selfish_behaviour = True
                 rel_file_name = "{}\\{}".format(self.name, file_name)
 #                print(rel_file_name, req_port)
-                tcp_send_thread = threading.Thread(target=self.send_tcp, args=(tcp_port, rel_file_name))
+                tcp_send_thread = threading.Thread(target=self.send_tcp, args=(tcp_port, rel_file_name, selfish_behaviour))
                 tcp_send_thread.start()
 
-    def send_tcp(self, tcp_port, file_name):
+    def send_tcp(self, tcp_port, file_name, selfish_behaviour):
         server_tcp = socket.socket()  # Create a socket object
         server_tcp.bind((self.address, tcp_port))  # Bind to the port
         server_tcp.listen()
         conn, addr = server_tcp.accept()
+        if(selfish_behaviour):
+            print("Selfish behaviour detected by the client. Delaying for {} seconds".format(SELFISH_BEHAVIOR_DELAY))
+            time.sleep(SELFISH_BEHAVIOR_DELAY)
         with open(file_name, 'rb') as file_to_send:
             for data in file_to_send:
                 conn.sendall(data)
