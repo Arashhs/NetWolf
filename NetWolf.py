@@ -91,6 +91,8 @@ class Node:
             recv_tcp_thread = threading.Thread(target=self.recv_tcp, args=(tcp_addr, tcp_port, file_name))
             recv_tcp_thread.start()
             print("Getting {} from node {}".format(file_name, self.cluster_list[shortestIndex][0]))
+        else:
+            print('No peer has the file "{}"'.format(file_name))
 
 
 
@@ -208,6 +210,7 @@ def get_user_commands(nodes_list):
     print('Commands:\n1) "switch": change selected node\n2) "list": show cluster_list of {}'.format(
     nodes_list[int(selected)].name))
     print('3) "get <filename>" download the file from the fastest peer. e.g. "get dark-souls.jpg"')
+    print('4) "help": showing this help menu anytime you needed')
     while True:
         command = input("> ")
         if command == "switch":
@@ -217,8 +220,15 @@ def get_user_commands(nodes_list):
             selected = int(input("> "))
         elif command == "list":
             nodes_list[selected].show_clusters_list()
-        elif command.split()[0] == "get":
+        elif command.split() and command.split()[0] == "get":
             nodes_list[selected].udp_client_get(command.split()[1])
+        elif command == "help":
+            print('Commands:\n1) "switch": change selected node\n2) "list": show cluster_list of {}'.format(
+                nodes_list[int(selected)].name))
+            print('3) "get <filename>" download the file from the fastest peer. e.g. "get dark-souls.jpg"')
+            print('4) "help": showing this help menu anytime you needed')
+        else:
+            print('The command is not valid. Enter "help" to see the valid commands.')
 
 
 def main():
